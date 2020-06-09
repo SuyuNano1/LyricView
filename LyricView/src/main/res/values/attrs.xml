@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	
+	<declare-styleable name="EdgeGradient">
+		<attr name="edgeGradientLength" format="dimension"/>
+		<attr name="edgeGradientDirection">
+			<flag name="top" value="1"/>
+			<flag name="bottom" value="2"/>
+		</attr>
+	</declare-styleable>
+	
+	<declare-styleable name="LyricView">
+		<attr name="lyric_textSize" format="dimension"/>
+		<attr name="lyric_textColor" format="color"/>
+		<attr name="lyric_highlight_textColor" format="color"/>
+		<attr name="lyric_selected_textColor" format="color"/>
+		
+		<attr name="lyric_max_widthPercent" format="fraction"/>
+		<attr name="lyric_max_widthMargin" format="dimension"/>
+			
+		<attr name="time_textSize" format="dimension"/>
+		<attr name="time_textColor" format="color"/>
+		<attr name="time_textLeft" format="dimension"/>
+		
+		<attr name="hint_textSize" format="dimension"/>
+		<attr name="hint_textColor" format="color"/>
+		
+		<attr name="loading_tip_text" format="string"/>
+		<attr name="loading_tip_textSize" format="dimension"/>
+		<attr name="loading_tip_textColor" format="color"/>
+		
+		<attr name="indicator" format="color|reference"/>
+		<attr name="indicator_height" format="dimension"/>
+		
+		<attr name="play_button" format="color|reference"/>
+		<attr name="play_button_width" format="dimension"/>
+		<attr name="play_button_height" format="dimension"/>
+		<attr name="play_button_right" format="dimension"/>
+		
+		<attr name="scroll_duration" format="integer"/>
+		<attr name="scroll_to_selected_lyric_duration" format="integer"/>
+		
+		<attr name="scroll_to_selected_lyric_delaymillis" format="integer"/>
+		<attr name="hide_indicator_delaymillis" format="integer"/>
+	
+		<attr name="lineSpace" format="dimension"/>
+	</declare-styleable>
+</resources>
