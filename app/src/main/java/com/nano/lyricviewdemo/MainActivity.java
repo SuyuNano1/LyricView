@@ -2,21 +2,25 @@ package com.nano.lyricviewdemo;
 
 import android.content.res.ColorStateList;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.annotation.RawRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.viewpager.widget.PagerAdapter;
+import androidx.viewpager.widget.ViewPager;
 import com.bumptech.glide.Glide;
 import com.nano.lyricview.CompatUtils;
 import com.nano.lyricview.Lyric;
@@ -24,11 +28,11 @@ import com.nano.lyricview.LyricLine;
 import com.nano.lyricview.LyricView;
 import com.nano.lyricview.PlayButtonDrawable;
 import jp.wasabeef.glide.transformations.BlurTransformation;
+import jp.wasabeef.glide.transformations.RoundedCornersTransformation;
 import org.json.JSONException;
 
 import static com.nano.lyricview.CompatUtils.dp2px;
-import static com.nano.lyricview.CompatUtils.sp2px; 
-
+import static com.nano.lyricview.CompatUtils.sp2px;
 
 public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCompletionListener,LyricView.OnPlayButtonClickListener {
     
@@ -44,11 +48,13 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 	private int currentIndex = 0 ;
 	
 	private MediaPlayer mediaPlayer = new MediaPlayer() ;
-	private LyricView mLyricView ;
 	private ImageView mImageBackground ;
 	private SeekBar mSeekBar ;
 	private TextView mTvCurrentDuration ;
 	private TextView mTvDuration ;
+	private ViewPager mViewPager ;
+	
+	private MyPagerAdapter mPagerAdapter ;
 	
 	private boolean isSeekbarUserTouching ;
 	private boolean isUpdateProgress = true;
@@ -75,30 +81,22 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 		setSupportActionBar(toolbar);
 			
 		mImageBackground = findViewById(R.id.image_bg) ;
-		mLyricView = findViewById(R.id.lyric) ;
 		mSeekBar = findViewById(R.id.seekbar) ;
 		mTvDuration = findViewById(R.id.tv_duration) ;
 		mTvCurrentDuration = findViewById(R.id.tv_current_duration) ;
+		mViewPager = findViewById(R.id.viewpager) ;
 		
-		// changeAttrs() ;
-		changePlayButtonColors() ;
 		
 		mediaPlayer.setOnCompletionListener(this) ;
-		mLyricView.setOnPlayButtonClickListener(this) ;
+		
+		mPagerAdapter = new MyPagerAdapter(); 
+		mViewPager.setAdapter(mPagerAdapter) ;
+		
 		setCurrentSong(0) ;
-		
-		mLyricView.setOnClickListener(new OnClickListener(){
-			@Override
-			public void onClick(View v) {
-				Toast.makeText(v.getContext(),"Click",0).show() ;
-			}
-		}) ;
-		
 		mSeekBar.setOnSeekBarChangeListener(new OnSeekBarChangeListener(){
 			@Override
 			public void onProgressChanged(SeekBar seekbar, int progress, boolean isUser) {
-				mTvCurrentDuration.setText(CompatUtils.timeFormat(progress)) ; 
-				
+				mTvCurrentDuration.setText(CompatUtils.timeFormat(progress)) ; 	
 			}
 
 			@Override
@@ -108,7 +106,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 
 			@Override
 			public void onStopTrackingTouch(SeekBar seekbar) {
-				mLyricView.setIndicatorShow(false) ;
+				mPagerAdapter.mLyricView.setIndicatorShow(false) ;
 				isSeekbarUserTouching = false ;
 				changeProgress(seekbar.getProgress(),true) ;
 			}
@@ -133,7 +131,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 	
 	@Override
 	public void onPlayBtnClick(int position, LyricLine line) {
-		mLyricView.setIndicatorShow(false) ;
+		mPagerAdapter.mLyricView.setIndicatorShow(false) ;
 		changeProgress(line.getBeginTime(),true) ;
 	}
 
@@ -153,7 +151,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 			mediaPlayer.pause() ;
 			isUpdateProgress = false ;
 			progress.removeMessages(REFRESH) ;
-			mLyricView.setAutoScrollToLyric(false) ;
+			mPagerAdapter.mLyricView.setAutoScrollToLyric(false) ;
 		}
 	}
 	
@@ -161,28 +159,17 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 		mediaPlayer.start() ;
 		isUpdateProgress = true ;
 		progress.sendEmptyMessage(REFRESH) ;
-		mLyricView.setAutoScrollToLyric(true) ;
+		mPagerAdapter.mLyricView.setAutoScrollToLyric(true) ;
 	}
 	
 	private void setCurrentSong(final int index){
 		new Thread(new Runnable(){
 			@Override public void run() {
-				try {
-					final int[] song = SONGS[index] ;
-					Lyric lyric ;
-					mLyricView.setLoadingTipShow(true) ;
-					if (song[2] == 0) {
-						lyric = LyricParser.parseKuWoLyric(MainActivity.this, song[1]) ;
-					} else {
-						lyric = LyricParser.parseNeteaseLyric(MainActivity.this, song[1]) ;
-					}
-					mLyricView.loadLyric(lyric) ;
-					mLyricView.setLoadingTipShow(false) ;
-					play(song[0]) ;
-					switchBackground() ;
-				} catch (JSONException e) {
-					e.printStackTrace() ;
-				}
+				final int[] song = SONGS[index] ;
+				mPagerAdapter.loadLyric() ;
+				mPagerAdapter.loadAlbum() ;
+				play(song[0]) ;
+				switchBackground() ;
 			}	
 		}).start() ;
 	}
@@ -217,28 +204,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 			mTvCurrentDuration.setText(CompatUtils.timeFormat(time)) ;
 			mSeekBar.setProgress(time) ;
 		}
-		mLyricView.setCurrentPlayingLyricByTime(time,0) ;
-	}
-	
-	
-	private void changePlayButtonColors(){
-		Drawable playButtonDrawable = mLyricView.getPlayButtonDrawable() ;
-		if(playButtonDrawable instanceof PlayButtonDrawable){
-			PlayButtonDrawable pbd = (PlayButtonDrawable) playButtonDrawable ;
-			pbd.setColor(
-			    new ColorStateList(
-				    new int[][]{
-						{android.R.attr.state_pressed},
-						{}
-					},
-					new int[]{
-						0x00ffffff | (100 << 24),
-						0x00ffffff | (180 << 24)
-					}
-				)
-			) ;
-			pbd.setStrokeWidth(6) ;
-		}
+		mPagerAdapter.mLyricView.setCurrentPlayingLyricByTime(time,0) ;
 	}
 	
 	private void switchBackground(){
@@ -258,72 +224,106 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 		}) ;
 	}
 	
-	
-	private void changeAttrs(){
-		
-		mLyricView.setScrollDuration(2000) ;
-		mLyricView.setScrollToSelectedLyricDelayMillis(900) ;
-		mLyricView.setHideIndicatorDelayMillis(3000) ;
-		
-		
-		int lr = randomMiddleSize() ;
-		mLyricView.setTimeTextLeft(lr) ;
-		mLyricView.setTimeTextColor(randomColor()) ;
-		mLyricView.setTimeTextSize(randomSmallTextSize()) ;
-		
-		mLyricView.setLoadingTipColor(randomColor()) ;
-		mLyricView.setLoadingTipSize(randomLargeTextSize()) ;
-		mLyricView.setLoadingTip("正在加载歌词中") ;
-		
-		mLyricView.setHintTextSize(randomLargeTextSize()) ;
-		mLyricView.setHintTextColor(randomColor()) ;
-		
-		mLyricView.setLyricSelectedTextColor(randomColor()) ;
-		mLyricView.setLyricHighlightTextColor(randomColor()) ;
-		mLyricView.setLyricTextColor(randomColor()) ;
-		
-		mLyricView.setIndicatorHeight(3) ;
-		GradientDrawable gd = new GradientDrawable() ;
-		gd.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT) ;
-		gd.setGradientType(GradientDrawable.LINEAR_GRADIENT) ;
-		gd.setColors(new int[]{randomColor(),randomColor(),randomColor()}) ;
-		mLyricView.setIndicatorDrawable(gd); 
-		
-		int w ;
-		mLyricView.setPlayButtonSize(
-		    w = randomMiddleSize(),
-			w + 2
-		) ;
-		mLyricView.setPlayButtonRight(lr) ;
-		
-		changePlayButtonColors() ;
-	}
+	private class MyPagerAdapter extends PagerAdapter {
 
-	private int randomColor() {
-		return 255 << 24 |
-		       (int)(256 * Math.random()) << 16 |
-			   (int)(256 * Math.random()) <<  8 |
-			   (int)(256 * Math.random()) ;
-	}
-	
-	private int randomSmallTextSize(){
-		return (int)sp2px(this,(int)(10 + Math.random() * 5)) ;
-	}
-	
-	private int randomMiddleTextSize(){
-		return (int)sp2px(this,(int)(15 + Math.random() * 5)) ;
-	}
-	
-	private int randomLargeTextSize(){
-		return (int)sp2px(this,(int)(20 + Math.random() * 5)) ;
-	}
+		private ImageView mAlbumView ;
+		private LyricView mLyricView ;
+		
+		private View mAlbumLayout ;
+		private View mLyricLyout ;
+		
+		public MyPagerAdapter(){
+			mAlbumLayout = LayoutInflater.from(MainActivity.this).inflate(R.layout.album,null,false) ;
+			mAlbumView = mAlbumLayout.findViewById(R.id.album) ;
+			
+			mLyricLyout = LayoutInflater.from(MainActivity.this).inflate(R.layout.lyric,null,false) ;
+			mLyricView = mLyricLyout.findViewById(R.id.lyric) ;
+			mLyricView.setOnPlayButtonClickListener(MainActivity.this) ;
+			mLyricView.setOnClickListener(new OnClickListener(){
+				@Override
+				public void onClick(View v) {
+					Toast.makeText(v.getContext(),"Click",0).show() ;
+				}
+			}) ;
+			
+			Drawable playButtonDrawable = mLyricView.getPlayButtonDrawable() ;
+			if(playButtonDrawable instanceof PlayButtonDrawable){
+				PlayButtonDrawable pbd = (PlayButtonDrawable) playButtonDrawable ;
+				pbd.setColor(
+					new ColorStateList(
+						new int[][]{
+							{android.R.attr.state_pressed},
+							{}
+						},
+						new int[]{
+							0x00ffffff | (100 << 24),
+							0x00ffffff | (180 << 24)
+						}
+					)
+				) ;
+				pbd.setStrokeWidth(6) ;
+			}
+		}
+		
+		@Override
+		public int getCount() {
+			return 2;
+		}
 
-	private int randomMiddleSize(){
-		return (int)dp2px(this,(int)(10 + Math.random() * 5)) ;
-	}
+		@Override
+		public boolean isViewFromObject(View view, Object obj) {
+			return view == obj;
+		}
 
-	private int randomLargeSize(){
-		return (int)dp2px(this,(int)(20 + Math.random() * 5)) ;
-	}
+		@Override
+		@NonNull
+		public Object instantiateItem(ViewGroup container, int position) {
+			switch(position){
+				case 0 :
+					container.addView(mAlbumLayout) ; 
+					return mAlbumLayout ;
+				case 1 :
+					container.addView(mLyricLyout) ; 
+					return mLyricLyout ;
+			}
+			throw new IndexOutOfBoundsException(); 
+		}
 
+		@Override
+		public void destroyItem(ViewGroup container, int position, Object object) {
+			container.removeView((View)object) ;
+		}
+		
+		private void loadAlbum(){
+			mAlbumView.post(new Runnable(){
+				@Override
+				public void run() {
+					Glide.with(MainActivity.this)
+						.load(SONGS[currentIndex][3])
+						.centerCrop()
+						.bitmapTransform(new RoundedCornersTransformation(
+							MainActivity.this,45,0						
+						))
+						.into(mAlbumView) ;
+				}
+			}) ;
+		}
+		
+		private void loadLyric(){
+			try {
+				int[] song = SONGS[currentIndex] ;
+				Lyric lyric ;
+				mLyricView.setLoadingTipShow(true) ;
+				if (song[2] == 0) {
+					lyric = LyricParser.parseKuWoLyric(MainActivity.this, song[1]) ;
+				} else {
+					lyric = LyricParser.parseNeteaseLyric(MainActivity.this, song[1]) ;
+				}
+				mLyricView.loadLyric(lyric) ;
+				mLyricView.setLoadingTipShow(false) ;
+			} catch (JSONException e) {
+				e.printStackTrace() ;
+			}
+		}
+	}
 }
