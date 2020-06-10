@@ -573,10 +573,12 @@ public class LyricView extends View {
 				}
 
 				if (this.mIsBeingDragged) {
+					
+					this.mIsBeingDragged = false ;
 					// 计算当前速度
 					mVelocityTracker.computeCurrentVelocity(1000, mMaximumVelocity) ;	
-					int velocityY = (int)mVelocityTracker.getYVelocity(mActivePointerId) ;	
-
+					int velocityY = (int)mVelocityTracker.getYVelocity(mActivePointerId) ;
+					
 					// 当速度大于最小速度值，开始fling。
 					if (Math.abs(velocityY) > mMinimumVelocity) {
 						fling(-velocityY) ;
@@ -585,14 +587,21 @@ public class LyricView extends View {
 						postInvalidateOnAnimation();
 					} else {
 						onTouchOrScrollToEnd() ;
-					}
-					this.mIsBeingDragged = false ;
+					}		
 				}else{
 					onTouchOrScrollToEnd() ;
 				}
 				
 				recycleVelocityTracker() ;
 				mActivePointerId = mPlayerActivePointerId = INVALID_POINTER ;
+				break ;
+				
+			case MotionEvent.ACTION_CANCEL :
+				recycleVelocityTracker() ;
+				cancelPlayButtonPressed() ;
+				mIsBeingDragged = false ;
+				mActivePointerId = mPlayerActivePointerId = INVALID_POINTER ;
+				onTouchOrScrollToEnd() ;
 				break ;
 
 			case MotionEvent.ACTION_POINTER_DOWN :
