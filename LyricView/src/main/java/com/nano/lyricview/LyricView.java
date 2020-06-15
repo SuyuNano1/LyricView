@@ -22,17 +22,19 @@ import android.view.View;
 import android.view.ViewConfiguration;
 
 import static com.nano.lyricview.CompatUtils.dp2px;
-import static com.nano.lyricview.CompatUtils.sp2px; 
+import static com.nano.lyricview.CompatUtils.sp2px;
+import android.view.animation.LinearInterpolator; 
 
 /**
- * 歌词控件，用于显示并且播放歌词。
+ * 歌词控件，用于显示歌词。
  *
  * @author nano1
  */
 public class LyricView extends View {
 
-	private static final int WHAT_SCROLL_TO_INDICATED_LYRIC = 1 ;
-	private static final int WHAT_HIDE_INDICATOR = 0 ;
+	private static final int MSG_HIDE_INDICATOR = 0 ;
+	private static final int MSG_ALIGN_TO_SELECTED_LYRIC = 1 ;
+	private static final int MSG_SCROLL_TO_PLAT = 2;
 	
 	private static final int INVALID_POINTER = -1 ;
 	private static final int PLAYBUTTON_EXPAND_SIZE = 75 ;
@@ -70,15 +72,15 @@ public class LyricView extends View {
 	/**
 	 * 默认歌词的颜色。
 	 */
-	private int mLyricTextColor = Color.BLACK ;
+	private int mLyricColor = Color.BLACK ;
 	/**
 	 * 当前播放的歌词高亮颜色。
 	 */
-	private int mLyricHighlightTextColor = Color.BLUE ;
+	private int mHighlightLyricColor = Color.BLUE ;
 	/**
 	 * 指示器选中颜色。
 	 */
-	private int mLyricSelectedTextColor = Color.RED ;
+	private int mSelectedLyricColor = Color.RED ;
 
 	private View.OnClickListener mOnClickListener;
 	
@@ -121,8 +123,8 @@ public class LyricView extends View {
 	private int mMaximumVelocity ;
 	private int mMinimumVelocity ;
 	
-	private int mScrollDuration ;
-	private int mScrollToSelectedLyricDuration ;
+	private int mDurationOfScrollToPlayLyric ;
+	private int mDurationOfAlignToSelectedLyric ;
 	private boolean mCanScroll ;
 
 	/**
@@ -136,23 +138,27 @@ public class LyricView extends View {
 	/**
 	 * 当前播放的位置索引。
 	 */
-	private int mLyricIndexCurrentlyPlaying = -1 ;
+	private int mCurrentPlayLyricIndex = -1 ;
 
 	private boolean mIsBeingDragged ;
 	private int mActivePointerId = INVALID_POINTER ;
 	private int mPlayerActivePointerId = INVALID_POINTER ;
-	private boolean mAutoScrollToLyric = true ;
+	private boolean mIsAutoScrollToPlayLyric = true ;
+	private boolean mIsAutoHideIndicator = true ;
+	private boolean mIsAutoAlignToSelectedLyric = true ;
 	private boolean mIndicatorShow = false ;
 
 	/**
 	 * 执行隐藏 Indicator 的延迟时间。
 	 */
-	private int mHideIndicatorDelayMillis = 4000 ;
+	private int mDelayMillisOfHideIndicator = 3600 ;
+	
+	private int mDelayMillisOfScrollToPlayLyric = 3600 ;
 
 	/**
 	 * 执行滚动到指示器指示的位置的延迟时间。
 	 */
-	private int mScrollToSelectedLyricDelayMillis = 700 ;
+	private int mDelayMillisOfAlignToSelectedLyric = 700 ;
 
 	private Lyric mLyric ;
 
@@ -171,11 +177,16 @@ public class LyricView extends View {
 		@Override
 		public void handleMessage(Message msg) {
 			switch(msg.what){
-				case WHAT_SCROLL_TO_INDICATED_LYRIC :
-					scrollToSelectedLyricPosition(msg.arg1) ;
+				case MSG_ALIGN_TO_SELECTED_LYRIC :
+					if(mIndicatorShow){
+				    	privateAlignToSelectedLyric(msg.arg1 != 0,msg.arg2) ;
+					}
 					break ;
-				case WHAT_HIDE_INDICATOR :
-					hideIndicator(msg.arg2 != 0,msg.arg1) ;
+				case MSG_SCROLL_TO_PLAT :
+					privateScrollToPlayLyric(msg.arg1 != 0,msg.arg2) ;
+					break ;
+				case MSG_HIDE_INDICATOR :
+					hideIndicator() ;
 					break ;
 			}
 		}
@@ -222,7 +233,7 @@ public class LyricView extends View {
 	private void initPaint() {
 		this.mLyricPaint = Paints.createFontPaint(
 		    (int)sp2px(getContext(), 16),
-			mLyricTextColor,
+			mLyricColor,
 			Paint.Align.CENTER
 		);
 
@@ -253,8 +264,8 @@ public class LyricView extends View {
 		this.mPlayButtonRigth = (int)dp2px(getContext(), 4) ;
 		this.mLineSpace = (int)dp2px(getContext(), 16) ;
 		this.mLyricWidthPercent = 0.7f ;
-		this.mScrollDuration = 1600 ;
-		this.mScrollToSelectedLyricDuration = 400 ;
+		this.mDurationOfScrollToPlayLyric = 1400 ;
+		this.mDurationOfAlignToSelectedLyric = 400 ;
 		this.mPlayButtonWidth = (int)dp2px(getContext(), 12) ;
 		this.mPlayButtonHeight = (int)dp2px(getContext(), 14) ;
 		this.mPlayButtonDrawable = new PlayButtonDrawable() ;
@@ -276,7 +287,7 @@ public class LyricView extends View {
 		this.mLyricWidthPercent = ta.getFraction(R.styleable.LyricView_lyric_max_widthPercent,1,1,mLyricWidthPercent) ;
 		this.mLyricWidthMargin = ta.getDimensionPixelSize(R.styleable.LyricView_lyric_max_widthMargin,(int)mLyricWidthMargin) ;
 		
-		this.mPlayButtonWidth = ta.getDimensionPixelSize(R.styleable.LyricView_scroll_duration,mPlayButtonWidth) ;
+		this.mPlayButtonWidth = ta.getDimensionPixelSize(R.styleable.LyricView_play_button_width,mPlayButtonWidth) ;
 		this.mPlayButtonHeight = ta.getDimensionPixelSize(R.styleable.LyricView_play_button_height,mPlayButtonHeight) ;
 		this.mPlayButtonRigth = ta.getDimensionPixelSize(R.styleable.LyricView_play_button_right,this.mPlayButtonRigth) ;
 		
@@ -295,9 +306,9 @@ public class LyricView extends View {
 		this.mTimePaint.setColor(timeTextColor) ;
 		this.mTimeTextLeft = ta.getDimensionPixelSize(R.styleable.LyricView_time_textLeft,this.mTimeTextLeft) ;
 		
-		this.mLyricTextColor = ta.getColor(R.styleable.LyricView_lyric_textColor,mLyricTextColor) ;
-		this.mLyricHighlightTextColor = ta.getColor(R.styleable.LyricView_lyric_highlight_textColor,mLyricHighlightTextColor) ;
-		this.mLyricSelectedTextColor = ta.getColor(R.styleable.LyricView_lyric_selected_textColor,mLyricSelectedTextColor) ;
+		this.mLyricColor = ta.getColor(R.styleable.LyricView_lyric_textColor,mLyricColor) ;
+		this.mHighlightLyricColor = ta.getColor(R.styleable.LyricView_lyric_highlight_textColor,mHighlightLyricColor) ;
+		this.mSelectedLyricColor = ta.getColor(R.styleable.LyricView_lyric_selected_textColor,mSelectedLyricColor) ;
 		
 		int lyricTextSize = ta.getDimensionPixelSize(R.styleable.LyricView_lyric_textSize,defaultTextSize) ;
 		this.mLyricPaint.setTextSize(lyricTextSize) ;
@@ -315,17 +326,22 @@ public class LyricView extends View {
 			this.mLoadingTip = ta.getString(R.styleable.LyricView_loading_tip_text) ;
 		}
 		
-		int scrollDuration = ta.getInteger(R.styleable.LyricView_scroll_duration,mScrollDuration) ;
-		this.mScrollDuration = scrollDuration < 0 ? 0 : scrollDuration ;
+		int duration ,delayMillis;
 		
-		int scrollToIndicatorDuration = ta.getInteger(R.styleable.LyricView_scroll_to_selected_lyric_duration,mScrollToSelectedLyricDuration) ;
-		this.mScrollToSelectedLyricDuration = scrollToIndicatorDuration < 0 ? 0 : scrollToIndicatorDuration ;
+		duration = ta.getInteger(R.styleable.LyricView_duration_of_scroll_to_play_lyric,mDurationOfScrollToPlayLyric) ;
+		this.mDurationOfScrollToPlayLyric = duration < 0 ? 0 : duration ;
 		
-		int scrollToIndicatorDelayMillis = ta.getInteger(R.styleable.LyricView_scroll_to_selected_lyric_delaymillis,mScrollToSelectedLyricDelayMillis) ;
-		this.mScrollToSelectedLyricDelayMillis = scrollToIndicatorDelayMillis < 0 ? 0 : scrollToIndicatorDelayMillis ;
+		duration = ta.getInteger(R.styleable.LyricView_duration_of_align_to_selected_lyric,mDurationOfAlignToSelectedLyric) ;
+		this.mDurationOfAlignToSelectedLyric = duration < 0 ? 0 : duration ;
 		
-		int hideIndicatorDelayMillis = ta.getInteger(R.styleable.LyricView_hide_indicator_delaymillis,mHideIndicatorDelayMillis); 
-		this.mHideIndicatorDelayMillis = hideIndicatorDelayMillis < 0 ? 0 : hideIndicatorDelayMillis ;
+		delayMillis = ta.getInteger(R.styleable.LyricView_delayMillis_of_align_to_selected_lyric,mDelayMillisOfAlignToSelectedLyric) ;
+		this.mDelayMillisOfAlignToSelectedLyric = delayMillis < 0 ? 0 : delayMillis ;
+		
+		delayMillis = ta.getInteger(R.styleable.LyricView_delayMillis_of_hide_indicator,mDelayMillisOfHideIndicator); 
+		this.mDelayMillisOfHideIndicator = delayMillis < 0 ? 0 : delayMillis ;
+		
+		delayMillis = ta.getInteger(R.styleable.LyricView_delayMillis_of_scroll_to_play_lyric,mDelayMillisOfScrollToPlayLyric) ;
+		this.mDelayMillisOfScrollToPlayLyric = delayMillis ;
 		ta.recycle() ;
 	}
 
@@ -405,12 +421,12 @@ public class LyricView extends View {
 				break ;
 			}
 
-			if (i == mLyricIndexCurrentlyPlaying) { // 表示当前歌词是播放中的歌词
-				mLyricPaint.setColor(mLyricHighlightTextColor) ;
+			if (i == mCurrentPlayLyricIndex) { // 表示当前歌词是播放中的歌词
+				mLyricPaint.setColor(mHighlightLyricColor) ;
 			} else if (isInIndicatedArea(line) && this.mIndicatorShow) {
-				mLyricPaint.setColor(mLyricSelectedTextColor) ;
+				mLyricPaint.setColor(mSelectedLyricColor) ;
 			} else {
-				mLyricPaint.setColor(mLyricTextColor) ;
+				mLyricPaint.setColor(mLyricColor) ;
 			}
 
 			StaticLayout staticLayout = obtainStaticLayout(line) ;
@@ -564,7 +580,7 @@ public class LyricView extends View {
 			case MotionEvent.ACTION_UP :
 
 				if (this.mPressedPlayButton) {
-					onPlayButtonClick() ;
+					onPlayButtonDrawableClick() ;
 				}else if(!this.mIsBeingDragged && this.mIsClickView){
 					if(mOnClickListener != null && isClickable()){
 						mOnClickListener.onClick(this) ;
@@ -630,7 +646,7 @@ public class LyricView extends View {
 				if(pointerId == mPlayerActivePointerId){
 					// 触发点击事件。
 					if(this.mPressedPlayButton){
-						onPlayButtonClick() ;
+						onPlayButtonDrawableClick() ;
 					}
 				}
 				
@@ -879,11 +895,10 @@ public class LyricView extends View {
 		return false ;
 	}
 
-	private void removeCallbacks() {
-		// 取消隐藏Indicator任务。
-		mTaskHandler.removeMessages(WHAT_HIDE_INDICATOR) ;
-		// 取消滚动到指示器任务。
-		mTaskHandler.removeMessages(WHAT_SCROLL_TO_INDICATED_LYRIC) ;
+	public void removeCallbacks() {
+		mTaskHandler.removeMessages(MSG_HIDE_INDICATOR) ;
+		mTaskHandler.removeMessages(MSG_ALIGN_TO_SELECTED_LYRIC) ;
+		mTaskHandler.removeMessages(MSG_SCROLL_TO_PLAT) ;
 	}
 	
 	protected final void autoInvalidate(int l,int t,int r,int b){
@@ -918,8 +933,15 @@ public class LyricView extends View {
 	 * 当手指触摸结束或者滚动结束会触发该方法。
 	 */
 	protected void onTouchOrScrollToEnd() {
-		scrollToSelectedLyricPosition(true,true) ;
-		hideIndicator(true) ;
+		if(mIsAutoAlignToSelectedLyric){
+		    alignToSelectedLyricDelayed(true,mDurationOfAlignToSelectedLyric) ;
+		}
+		if(mIsAutoHideIndicator){
+		    hideIndicatorDelayed() ;
+		}
+		if(mIsAutoScrollToPlayLyric){
+			scrollToPlayLyricDelayed(true,mDurationOfScrollToPlayLyric) ;
+		}
 	}
 
 	/**
@@ -933,14 +955,15 @@ public class LyricView extends View {
 		removeCallbacks() ;
 		changePlayButtonDrawableState() ;
 		if(isValidLyric()){
-			scrollToLyric(0,false,0) ;
+			setPlayLyricIndex(0) ;
+			scrollToPlayLyric() ;
 		}else{
 		    scrollTo(0, 0) ;
 		}
 		
 	}
 	
-	protected void onPlayButtonClick(){
+	protected void onPlayButtonDrawableClick(){
 		cancelPlayButtonPressed() ;
 		if (mOnPlayBtnClickListener != null) {
 			int pos = getSelectedLyricIndex() ;
@@ -956,6 +979,16 @@ public class LyricView extends View {
 	//                                PUBLIC METHOD
 	// --------------------------------------------------------------------------------
 
+	@Override
+	public void setOnClickListener(View.OnClickListener l) {
+		if(!isClickable()){
+			setClickable(true) ;
+		}
+		this.mOnClickListener = l ;
+	}
+	
+	//------------------------------- Sets Lyric -------------------------------//
+	
 	/**
 	 * 加载歌词，加载歌词后不能对歌词进行更改。
 	 */
@@ -973,117 +1006,463 @@ public class LyricView extends View {
 	public Lyric getLyric(){
 		return mLyric ;
 	}
-
-	@Override
-	public void setOnClickListener(View.OnClickListener l) {
-		if(!isClickable()){
-			setClickable(true) ;
+	
+	//------------------------------- Indicator Control -------------------------------//
+	
+	/**
+	 * 直接隐藏指示器。
+	 */
+	public void hideIndicator(){
+		if(mIndicatorShow){
+			mIndicatorShow = false ;
+			autoInvalidate() ;
 		}
-		this.mOnClickListener = l ;
 	}
 	
-	
-	//-------------------- Indicator Begin --------------------//
-
-	/**
-	 * 设置执行 <i>滚动到当前指示器所指示的歌词</i> 任务的默认延迟时间。
-	 * 
-	 * @param delayMillis 默认的延迟时间。
-	 */
-	public void setScrollToSelectedLyricDelayMillis(int delayMillis) {
-		this.mScrollToSelectedLyricDelayMillis = delayMillis ;
+	public void hideIndicatorDelayed(){
+		hideIndicatotDelayed(mDelayMillisOfHideIndicator) ;
 	}
 	
-	/**
-	 * 获取 执行 <i>滚动到当前指示器所指示的歌词</i> 任务的默认延迟时间。
-	 */
-	public int getScrollToSelectedLyricDelayMillis(){
-		return this.mScrollToSelectedLyricDelayMillis ;
-	}
-	
-	/**
-	 * 设置滚动到当前指示器选中的歌词中间动画的默认时长。
-	 *
-	 * @param duration 滚动动画的默认时长。
-	 */
-	public void setScrollToSelectedLyricDuration(int duration){
-		this.mScrollToSelectedLyricDuration = duration ;
-	}
-	
-	/**
-	 * 获取滚动到当前指示器选中的歌词中间动画的默认时长。
-	 */
-	public int getScrollToSelectedLyricDuration(){
-		return this.mScrollToSelectedLyricDuration ;
-	}
-	
-	/**
-	 * 滚动到指示器当前所选中的歌词位置中间，只有在指示器显示并且歌词存在的情况下才会滚动。
-	 * 
-	 * <pre><code>scrollToSelectedLyricPosition(mScrollIndicatedDuration)</code><pre>
-	 *
-	 * @see #scrollToSelectedLyricPosition(int)
-	 */
-	public void scrollToSelectedLyricPosition(){
-		scrollToSelectedLyricPosition(mScrollToSelectedLyricDuration) ;
-	}
-	
-	/**
-	 * 滚动到指示器当前所选中的歌词位置中间，只有在指示器显示并且歌词存在的情况下才会滚动。
-	 *
-	 * @param delayMillis 执行滚动的延迟时间延迟时间，可能会在等待状态中被中断，
-	 *                    例如用户手指按下时会取消所有任务。
-	 *
-	 * @param isAnimation 是否执行动画，如果 {@code duration <= 0}，强制为 {@code false}，
-	 *                    也就是说不会执行任何动画。
-	 * 
-	 * @param duration    执行滚动动画的时长。
-	 */
-	public void scrollToSelectedLyricPosition(int delayMillis,boolean isAnimation,int duration){
+	public void hideIndicatotDelayed(int delayMillis){
 		if(delayMillis > 0){
-			Message msg = mTaskHandler.obtainMessage(WHAT_SCROLL_TO_INDICATED_LYRIC) ;
-			msg.arg1 = !isAnimation ? 0 : duration ;
+			Message msg = mTaskHandler.obtainMessage(MSG_HIDE_INDICATOR) ;
 			mTaskHandler.sendMessageDelayed(msg,delayMillis) ;
 		}else{
-			scrollToSelectedLyricPosition(!isAnimation ? 0 : duration) ;
+			hideIndicator() ;
 		}
 	}
 	
-	/**
-	 * 滚动到指示器当前所选中的歌词位置中间，只有在指示器显示并且歌词存在的情况下才会滚动。
-	 *
-	 * @param isDelay     是否延迟执行，如果是，则使用默认的延迟时长。
-	 * @param isAnimation 是否执行滚动动画，如果是，则使用默认的滚动动画时长。
-	 *
-	 * @see #setScrollToSelectedLyricDelayMillis(int)
-	 * @see #setScrollToSelectedLyricDuration(int)
-	 */
-	public void scrollToSelectedLyricPosition(boolean isDelay,boolean isAnimation){
-		scrollToSelectedLyricPosition(
-		    isDelay ? mScrollToSelectedLyricDelayMillis : 0,
-			isAnimation,
-			isAnimation ? mScrollToSelectedLyricDuration : 0
-		) ;
+	public void showIndicator(){
+		if(!mIndicatorShow){
+			mIndicatorShow = true ;
+			autoInvalidate() ;
+		}
 	}
 	
-	/**
-	 * 滚动到指示器当前所选中的歌词位置中间，只有在指示器显示并且歌词存在的情况下才会滚动。
-	 *
-	 * @param duration 执行滚动动画的时长。
-	 */
-	public void scrollToSelectedLyricPosition(int duration){
-		int index = getSelectedLyricIndex() ;
-		if(index == -1 || !mIndicatorShow){
+	//------------------------------- Indicator Params -------------------------------//
+	
+	public void setIndicatorHeight(int height){
+		this.mIndicatorHeight = height ;
+		autoInvalidate() ;
+	}
+
+	public void setIndicatorDrawable(Drawable drawable){
+		if(this.mIndicatorDrawable == drawable){
 			return ;
 		}
-		scrollToPosition(index,getIndicatorViewY(),duration > 0,duration) ;
+		mIndicatorDrawable = drawable ;
+		autoInvalidate() ;
+	}
+
+	public Drawable getIndicatorDrawable(){
+		return mIndicatorDrawable ;
+	}
+
+	public void setIndicatorColor(int color){
+		if(this.mIndicatorDrawable instanceof ColorDrawable){
+			((ColorDrawable)mIndicatorDrawable).setColor(color) ;
+		}else if(this.mIndicatorDrawable instanceof GradientDrawable){
+			((GradientDrawable)mIndicatorDrawable).setColor(color) ;
+		}else {
+			GradientDrawable indicatorDrawable = new GradientDrawable() ;
+			indicatorDrawable.setColor(color) ;
+			indicatorDrawable.setCornerRadius(mIndicatorHeight/2) ;
+			setIndicatorDrawable(indicatorDrawable) ; 
+		}
+	}
+	
+	public boolean isIndicatorShow(){
+		return mIndicatorShow ;
+	}
+	
+	public void setDelayMillisOfHideIndicator(int delayMillis){
+		if(delayMillis < 0){
+			delayMillis = 0 ;
+		}
+		this.mDelayMillisOfHideIndicator = delayMillis ;
+	}
+	
+	public int getDelayMillisOfHideIndicator(){
+		return mDelayMillisOfHideIndicator ;
+	}
+	
+	//------------------------------- Play Button Click -------------------------------//
+	
+	/**
+	 * 设置播放按钮的点击事件。
+	 */
+	public void setOnPlayButtonClickListener(OnPlayButtonClickListener onPlayBtnClickListener) {
+		setPlayButtonClickable(true) ;
+		this.mOnPlayBtnClickListener = onPlayBtnClickListener ;
+	}
+
+	/**
+	 * 设置播放按钮是否是可以点击的。
+	 */
+	public void setPlayButtonClickable(boolean clickable) {
+		this.mPlayBtnClickable = clickable ;
+	}
+
+	public boolean isPlayButtonClickable(){
+		return this.mPlayBtnClickable ;
+	}
+	
+	//------------------------------- Play Button Shape -------------------------------//
+	
+	/**
+	 * 修改播放按钮Drawable。
+	 */
+	public void setPlayButtonDrawable(Drawable drawable){
+		if(drawable == mPlayButtonDrawable){
+			return ;
+		}
+		this.mPlayButtonDrawable = drawable;
+		changePlayButtonDrawableState() ;
+		invalidatePlayBtn() ;
+	}
+
+	/**
+	 * 获取播放按钮。
+	 */
+	public Drawable getPlayButtonDrawable(){
+		return this.mPlayButtonDrawable ;
+	}
+	
+	/** 
+	 * 设置播放按钮右边距。
+	 */
+	public void setPlayButtonRight(int right){
+		this.mPlayButtonRigth = right ;
+		autoInvalidate() ;
+	}
+
+	/**
+	 * 设置播放按钮宽度。
+	 */
+	public void setPlayButtonWidth(int width){
+		this.mPlayButtonWidth = width ;
+		resetPlayBtnRect() ;
+		invalidatePlayBtn() ;
+	}
+
+	/**
+	 * 设置播放按钮高度。
+	 */
+	public void setPlayButtonHeight(int height){
+		this.mPlayButtonHeight = height ;
+		resetPlayBtnRect() ;
+		invalidatePlayBtn() ;
+	}
+
+	/**
+	 * 设置播放按钮大小。
+	 *
+	 * @param width 播放按钮宽度。
+	 * @param height 播放按钮高度。
+	 */
+	public void setPlayButtonSize(int width,int height){
+		this.mPlayButtonWidth = width ;
+		this.mPlayButtonHeight = height ;
+		resetPlayBtnRect() ;
+		invalidatePlayBtn() ;
+	}
+	
+	//------------------------------- Hint Text Shape -------------------------------//
+	
+	/*
+	 * 设置提示文本颜色。
+	 *
+	 * @see Lyric#setHint(String)
+	 */
+	public void setHintTextColor(int color) {
+		this.mHintPaint.setColor(color) ;
+		if (!isValidLyric()) {
+			autoInvalidate() ;
+		}
+	}
+
+	/**
+	 * 设置提示文本大小。
+	 *
+	 * @param size px
+	 *
+	 * @see Lyric#setHint(String)
+	 */
+	public void setHintTextSize(float size) {
+		this.mHintPaint.setTextSize(size) ;
+		if (!isValidLyric()) {
+			autoInvalidate() ;
+		}
+	}
+	
+	
+	//------------------------------- Lyric Time Text -------------------------------//
+	
+	/**
+	 * 设置时间文本左边距。
+	 */
+	public void setTimeTextLeft(int left){
+		this.mTimeTextLeft = left ;
+		autoInvalidate() ;
+	}
+
+	/**
+	 * 设置歌词时间文本颜色。
+	 */
+	public void setTimeTextColor(int color){
+		this.mTimePaint.setColor(color) ;
+		autoInvalidate() ;
+	}
+
+	/**
+	 * 设置歌词时间文本大小。
+	 */
+	public void setTimeTextSize(float timeSize){
+		this.mTimePaint.setTextSize(timeSize) ;
+	}
+	
+	//------------------------------- Loading Tip Control -------------------------------//
+	
+	/**
+	 * 设置是否显示加载中的提示文本。
+	 */
+	public void setLoadingTipShow(boolean isShow) {
+		this.mIsShowLoadingTip = isShow ;
+		autoInvalidate() ;
+	}
+	
+	//------------------------------- Loading Tip Shape -------------------------------//
+	
+	/**
+	 * 设置加载时的提示文本。
+	 */
+	public void setLoadingTip(String loadingTip) {
+		this.mLoadingTip = loadingTip ;
+		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
+			autoInvalidate() ;
+		}
+	}
+
+	/**
+	 * 获取加载提示文本。
+	 */
+	public String getLoadingTip(){
+		return this.mLoadingTip ;
 	}
 	
 	/**
-	 * 通过二分法查找当前指示器选中的歌词行的索引。
-	 *
-	 * @return 返回当前 {@code Indicator} 所选中的歌词索引，如果当前没有歌词则返回 {@code -1} 。
+	 * 设置加载时的提示文本颜色。
 	 */
+	public void setLoadingTipColor(int color) {
+		this.mLoadingTipPaint.setColor(color) ;
+		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
+			autoInvalidate() ;
+		}
+	}
+
+	/**
+	 * 设置加载时的提示文本大小。
+	 *
+	 * @param size px
+	 */
+	public void setLoadingTipSize(float size) {
+		this.mLoadingTipPaint.setTextSize(size) ;
+		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
+			autoInvalidate() ;
+		}
+	}
+	
+	//------------------------------- Lyric Shape -------------------------------//
+	
+	/**
+	 * 设置歌词默认的文本颜色。
+	 */
+	public void setLyricColor(int color) {
+		if (this.mLyricColor == color) {
+			return ;
+		}
+		this.mLyricColor = color ;
+		invalidate() ;
+	}
+
+	/**
+	 * 设置当前播放歌词的高亮颜色。
+	 */
+	public void setHighlightLyricColor(int color) {
+		if (this.mHighlightLyricColor == color) {
+			return ;
+		}
+		this.mHighlightLyricColor = color ;
+		invalidate() ;
+	}
+
+	/**
+	 * 设置被 {@code Indicator} 选中的颜色。
+	 */
+	public void setSelectedLyricColor(int color) {
+		if (this.mSelectedLyricColor == color) {
+			return ;
+		}
+		this.mSelectedLyricColor = color ;
+		autoInvalidate() ;
+	}
+	
+	//------------------------------- Operation Of Scroll To Play Lyric -------------------------------//
+	
+	public void scrollToPlayLyric(){
+		privateScrollToPlayLyric(false,0) ;
+	}
+	
+	public void scrollToPlayLyricDelayed(boolean isAnimation,int duration){
+		scrollToPlayLyricDelayed(mDelayMillisOfScrollToPlayLyric,isAnimation,duration) ;
+	}
+
+	public void scrollToPlayLyricDelayed(int delayMillis, boolean isAnimation, int duration) {
+		if(delayMillis < 0){
+			privateScrollToPlayLyric(isAnimation,duration) ;
+		}else{
+			Message msg = mTaskHandler.obtainMessage(MSG_SCROLL_TO_PLAT) ;
+			msg.arg1 = isAnimation ? 1 : 0 ;
+			msg.arg2 = duration ;
+			mTaskHandler.sendMessageDelayed(msg,delayMillis) ;
+		}
+	}
+	
+	public void smoothScrollToPlayLyric(int duration){
+		privateScrollToPlayLyric(true,duration) ;
+	}
+	
+	private void privateScrollToPlayLyric(boolean isAnimation,int duration){
+		if(isValidLyric() && mCurrentPlayLyricIndex >= 0){
+			scrollToPosition(mCurrentPlayLyricIndex,getScrollTopOffset(),isAnimation,duration) ;
+		}
+	}
+	
+	//------------------------------- Operation Of Align To Selected Lyric -------------------------------//
+	
+	public void alignToSelectedLyric() {
+		privateAlignToSelectedLyric(false,0) ;
+	}
+	
+	public void alignToSelectedLyricDelayed(boolean isAnimation,int duration){
+		alignToSelectedLyricDelayed(mDelayMillisOfAlignToSelectedLyric,isAnimation,duration) ;
+	}
+
+	public void alignToSelectedLyricDelayed(int delayMillis,boolean isAnimation,int duration){
+		if(delayMillis < 0){
+			privateAlignToSelectedLyric(isAnimation,duration) ;
+		}else{
+			Message msg = mTaskHandler.obtainMessage(MSG_ALIGN_TO_SELECTED_LYRIC) ;
+			msg.arg1 = isAnimation ? 1 : 0 ;
+			msg.arg2 = duration ;
+			mTaskHandler.sendMessageDelayed(msg,delayMillis) ;
+		}
+	}
+
+	public void smoothAlignToSelectedLyric(int duration){
+		privateAlignToSelectedLyric(true,duration) ;
+	}
+	
+	private void privateAlignToSelectedLyric(boolean isAnimation,int duration){
+		int i = getSelectedLyricIndex() ;
+		if(i > 0){
+			scrollToPosition(i,getIndicatorViewY(),isAnimation,duration) ;
+		}
+	}
+	
+	//------------------------------- Sets Lyric Index To Play -------------------------------//
+	
+	public void setPlayLyricIndex(int index) {
+		if(!isValidLyric()){
+			return ;
+		}
+		final int count = getLyricCount() ; 
+		if(index < 0 && index >= count){
+			throw new IndexOutOfBoundsException("Index= " + index +",Range=[0," + count + ")") ;
+		}
+		this.mCurrentPlayLyricIndex = index ;
+		autoInvalidate();
+	}
+	
+	public void setPlayLyricIndexByTimeMillis(int timeMillis,int timeOffset){
+		if (!isValidLyric()) 
+			return ;
+		int count = getLyricCount() ;
+		timeMillis += timeOffset ;
+		int start = 0 ;
+		int end = count - 1 ;
+		while (start <= end) {
+			int mid = start + (end - start) / 2  ;
+			LyricLine line = mLyric.get(mid) ;
+			int lyricTime = line.getBeginTime() ;
+			if (lyricTime > timeMillis) {
+				end = mid - 1;
+			} else if (lyricTime < timeMillis) {
+				start = mid + 1;
+			} else {
+				start = mid + 1 ;
+				break ;
+			}
+		}
+		start -- ;
+		this.mCurrentPlayLyricIndex = start ;
+		autoInvalidate() ;
+	}
+	
+	/**
+	 * 获得当前播放的歌词索引。
+	 */
+	public int getPlayLyricIndex(){
+		return mCurrentPlayLyricIndex ;
+	}
+	
+	//------------------------------- Params Of Scroll -------------------------------//
+	
+	
+	public void setDurationOfScrollToPlayLyric(int duration){
+		if(duration < 0){
+			duration = 0 ;
+		}
+		this.mDurationOfScrollToPlayLyric = duration ;
+	}
+	
+	public int getDurationOfScrollToPlayLyric(){
+		return mDurationOfScrollToPlayLyric ;
+	}
+	
+	public void setDelayMillisOfScrollToPlayLyric(int delayMillis){
+		if(delayMillis < 0){
+			delayMillis = 0 ;
+		}
+		this.mDelayMillisOfScrollToPlayLyric = delayMillis ;
+	}
+	
+	public int getDelayMillisOfScrollToPlayLyric(){
+		return mDelayMillisOfScrollToPlayLyric ;
+	}
+	
+	public void setDurationOfAlignToSelectedLyric(int duration){
+		if(duration < 0){
+			duration = 0 ;
+		}
+		this.mDurationOfAlignToSelectedLyric = duration ;
+	}
+	
+	public int getDurationOfAlignToSelectedLyric(){
+		return mDurationOfAlignToSelectedLyric; 
+	}
+	
+	public void setDelayMillisOfAlignToSelectedLyric(int delayMillis){
+		if(delayMillis < 0){
+			delayMillis = 0 ;
+		}
+		this.mDelayMillisOfAlignToSelectedLyric = delayMillis ;
+	}
+	
+	public int getDelayMillisOfAlignToSelectedLyric(){
+		return mDelayMillisOfAlignToSelectedLyric ;
+	}
+	
 	public int getSelectedLyricIndex() {	
 		if (!isValidLyric()) {
 			return -1 ;
@@ -1111,11 +1490,6 @@ public class LyricView extends View {
 		return pos < 0 ? 0 : pos >= lyricCount ? lyricCount - 1 : pos;
 	}
 
-	/**
-	 * 获取当前指示器选中的歌词。
-	 *
-	 * @return 返回当前指示器所选中的歌词，如果当前没有歌词则返回 {@code null} 。
-	 */
 	public LyricLine getSelectedLyricLine() {
 		int pos = getSelectedLyricIndex() ;
 		if (pos < 0)
@@ -1123,462 +1497,19 @@ public class LyricView extends View {
 		return mLyric.get(pos) ;
 	}
 
-	/**
-	 * 设置执行 <i>隐藏指示器</i> 任务的延迟时间。
-	 * 
-	 * @param delayMillis 延迟时间。
-	 */
-	public void setHideIndicatorDelayMillis(int delayMillis) {
-		this.mHideIndicatorDelayMillis = delayMillis ;
-	}
-	
-	/**
-	 * 返回 执行 <i>隐藏指示器</i> 任务的延迟时间。
-	 */
-	public int getHideIndicatorDelatMillis(){
-		return this.mHideIndicatorDelayMillis ;
-	}
 
-	/**
-	 * 设置显示或者隐藏 {@code Indicator}。
-	 */
-	public void setIndicatorShow(boolean isShow) {
-		if (this.mIndicatorShow == isShow) {
-			return ;
-		}
-		this.mIndicatorShow = isShow ;
-		autoInvalidate() ;
+	//------------------------------- Auto Scroll Control -------------------------------//
+	
+	public void setAutoScrollToPlayLyric(boolean isAuto){
+		this.mIsAutoScrollToPlayLyric = isAuto ;
 	}
 	
-	/**
-	 * 判断 {@code Indicator} 是否正在显示中。
-	 */
-	public boolean isIndicatorShow(){
-		return this.mIndicatorShow ;
+	public void setAutoAlignToSelectedLyric(boolean isAuto){
+		this.mIsAutoAlignToSelectedLyric = isAuto ;
 	}
 	
-	/**
-	 * 隐藏指示器并且滚动到当前播放的歌词位置。
-	 * 
-	 * <p>默认的滚动时长 {@link #setScrollDuration(int)}
-	 * <p>是否滚动到当前播放的歌词 {@link #setAutoScrollToLyric(boolean)}
-	 * <p>不延迟执行
-	 */
-	public void hideIndicator(){
-		hideIndicator(mAutoScrollToLyric,mScrollDuration) ;
-	}
-	
-	/**
-	 * 隐藏指示器并且滚动到当前播放的歌词位置。
-	 *
-	 * <p>默认的滚动时长 {@link #setScrollDuration(int)}
-	 * <p>是否滚动到当前播放的歌词 {@link #setAutoScrollToLyric(boolean)}
-	 *
-	 * @param 是否延迟执行，默认的延迟执行时长 {@link #setHideSelectedDelayMillis(intl}
-	 */
-	public void hideIndicator(boolean isDelay){
-		hideIndicator(
-		    isDelay ? mHideIndicatorDelayMillis : 0,
-			mAutoScrollToLyric,
-			mScrollDuration
-		);
-	}
-	
-	/**
-	 * 隐藏指示器并且滚动到当前播放的歌词位置。
-	 * 
-	 * @param delayMillis    延迟执行时长，小于等于0表示直接执行。
-	 * @param isScrollLyric  是否滚动到当前正在播放的歌词。
-	 * @param scrollDuration 滚动时长，小于等于0表示不执行滚动动画。
-	 */
-	public void hideIndicator(int delayMillis,boolean isScrollLyric,int scrollDuration){
-		if(delayMillis > 0){
-			Message msg = mTaskHandler.obtainMessage(WHAT_HIDE_INDICATOR) ;
-			msg.arg1 = scrollDuration ;
-			msg.arg2 = !isScrollLyric ? 0 : 1 ;
-			mTaskHandler.sendMessageDelayed(msg,delayMillis) ;
-		}else{
-			hideIndicator(isScrollLyric,scrollDuration) ;
-		}
-	}
-	
-	/**
-	 * 隐藏指示器并且滚动到当前播放的歌词位置。
-	 *
-	 * @param isScrollLyric 是否滚动到当前正在播放的歌词。
-	 * @param scrollDuration 滚动时长，小于等于0表示不执行滚动动画。
-	 */
-	public void hideIndicator(boolean isScrollLyric,int scrollDuration){
-		if (mIndicatorShow) {
-			mIndicatorShow = false ;
-			if(!isScrollLyric)
-				invalidate() ;
-		}
-		if (isScrollLyric) {
-			scrollToLyric(mLyricIndexCurrentlyPlaying,true,scrollDuration) ;
-		}
-	}
-	
-	/**
-	 * 设置指示器高度。
-	 */
-	public void setIndicatorHeight(int height){
-		this.mIndicatorHeight = height ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 设置指示器 {@code Drawable} 。
-	 */
-	public void setIndicatorDrawable(Drawable drawable){
-		if(this.mIndicatorDrawable == drawable){
-			return ;
-		}
-		mIndicatorDrawable = drawable ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 获取 {@code Indicator Drawable}
-	 */
-	public Drawable getIndicatorDrawable(){
-		return mIndicatorDrawable ;
-	}
-	
-	/**
-	 * 设置指示器颜色。
-	 */
-	public void setIndicatorColor(int color){
-		if(this.mIndicatorDrawable instanceof ColorDrawable){
-			((ColorDrawable)mIndicatorDrawable).setColor(color) ;
-		}else if(this.mIndicatorDrawable instanceof GradientDrawable){
-			((GradientDrawable)mIndicatorDrawable).setColor(color) ;
-		}else {
-			GradientDrawable indicatorDrawable = new GradientDrawable() ;
-			indicatorDrawable.setColor(color) ;
-			indicatorDrawable.setCornerRadius(mIndicatorHeight/2) ;
-			setIndicatorDrawable(indicatorDrawable) ; 
-		}
-	}
-	
-	//-------------------- Indicator End --------------------//
-	
-	/**
-	 * 获得当前播放的歌词索引。
-	 */
-	public int getLyricIndexCurrentlyPlaying(){
-		return mLyricIndexCurrentlyPlaying ;
-	}
-
-	public void setCurrentPlayingLyricByTime(int timemillis, int offset) {
-		this.setCurrentPlayingLyricByTime(timemillis, offset, mScrollDuration) ;
-	}
-
-	private void setCurrentPlayingLyricByTime(int timemillis, int offset, int mDuration) {
-		this.setCurrentPlayingLyricByTime(timemillis, offset, true, mDuration) ;
-	}
-
-	/**
-	 * 根据播放的时间进度来设置当前播放歌词位置。
-	 *
-	 * <p>先会通过传进来的时间参数进行二分查找，将找到的歌词索引进行赋值。</p>
-	 * <p>如果当前 {@code Indicator} 是隐藏的那么会滚动到查找到的指定歌词索引，
-	 *    如果 {@code Indicator} 没有隐藏，则只是进行刷新。</p>
-	 * 
-	 * @param timemillis  当前音乐播放的时间进度。
-	 * @param timeOffset  时间偏移量。
-	 * @param isAnimation 如果滚动，是否执行滚动动画。
-	 * @param duration    动滚的动画的时长。
-	 */
-	public void setCurrentPlayingLyricByTime(int timemillis, int timeOffset, boolean isAnimation, int duration) {
-		if (!isValidLyric()) 
-			return ;
-
-		int count = getLyricCount() ;
-		timemillis += timeOffset ;
-		int start = 0 ;
-		int end = count - 1 ;
-		int mid = 0 ;
-		while (start <= end) {
-			mid = start + (end - start) / 2  ;
-			LyricLine line = mLyric.get(mid) ;
-			if (line.getBeginTime() > timemillis) {
-				end = mid - 1;
-			} else if (line.getBeginTime() < timemillis) {
-				start = mid + 1;
-			} else {
-				start = mid + 1 ;
-				break ;
-			}
-		}
-
-		this.mLyricIndexCurrentlyPlaying = -- start ;
-
-		// 如果当前的 Indicator 是隐藏的话，则会调用滚动方法进行滚动。
-		if (!mIndicatorShow) {
-		    scrollToLyric(mLyricIndexCurrentlyPlaying, isAnimation, duration) ;
-		} else {
-			autoInvalidate() ;
-		}
-	}
-
-	/**
-	 * <code>scrollToLyric(index,true,mScrollDuration)</code>
-	 *
-	 * @see scrollToLyric(int,boolean,int)
-	 */
-	public void scrollToLyric(int index) {
-		this.scrollToLyric(index, true, mScrollDuration) ;
-	}
-
-	/**
-	 * 滚动到指定歌词，并将该行歌词设置为当前播放的歌词。
-	 *
-	 * @param index       指定的歌词索引。
-	 * @param isAnimation 是否执行动画。
-	 * @param duration    指定的动画时长。
-	 */
-	public void scrollToLyric(int index, boolean isAnimation, int duration) {
-		if (isValidLyric()) {
-		    this.mLyricIndexCurrentlyPlaying = index ;
-		    scrollToPosition(index, getScrollTopOffset(), isAnimation, duration) ;
-		}
-	}
-
-	/**
-	 * 设置是否自动滚动到当前播放的位置。
-	 *
-	 * <p>当手指离开屏幕时，可能会执行一个延迟任务来滚动到当前播放的位置。</p>
-	 *
-	 * @param auto <code>true</code> 表示自动滚动到当前播放位置，反之。
-	 */
-	public void setAutoScrollToLyric(boolean auto) {
-		this.mAutoScrollToLyric = auto ;
-	}
-
-	/**
-	 * 设置自动滚动的时长。
-	 *
-	 * @see #setAutoScrollToCurrentPlayingLyric(boolean)
-	 * @see #scrollToLyric(int,boolean)
-	 * @see #setCurrentPlayingLyricByTime(int,int)
-	 */
-	public void setScrollDuration(int duration) {
-		this.mScrollDuration = duration ;
-	}
-	
-	public int getScrollDuration(){
-		return this.mScrollDuration ;
-	}
-	
-	//-------------------- PlayButton Begin --------------------//
-	
-	/**
-	 * 修改播放按钮Drawable。
-	 */
-	public void setPlayButtonDrawable(Drawable drawable){
-		if(drawable == mPlayButtonDrawable){
-			return ;
-		}
-		this.mPlayButtonDrawable = drawable;
-		changePlayButtonDrawableState() ;
-		invalidatePlayBtn() ;
-	}
-	
-	/**
-	 * 获取播放按钮。
-	 */
-	public Drawable getPlayButtonDrawable(){
-		return this.mPlayButtonDrawable ;
-	}
-
-	/**
-	 * 设置播放按钮的点击事件。
-	 */
-	public void setOnPlayButtonClickListener(OnPlayButtonClickListener onPlayBtnClickListener) {
-		setPlayButtonClickable(true) ;
-		this.mOnPlayBtnClickListener = onPlayBtnClickListener ;
-	}
-
-	/**
-	 * 设置播放按钮是否是可以点击的。
-	 */
-	public void setPlayButtonClickable(boolean clickable) {
-		this.mPlayBtnClickable = clickable ;
-	}
-	
-	public boolean isPlayButtonClickable(){
-		return this.mPlayBtnClickable ;
-	}
-	
-	/** 
-	 * 设置播放按钮右边距。
-	 */
-	public void setPlayButtonRight(int right){
-		this.mPlayButtonRigth = right ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 设置播放按钮宽度。
-	 */
-	public void setPlayButtonWidth(int width){
-		this.mPlayButtonWidth = width ;
-		resetPlayBtnRect() ;
-		invalidatePlayBtn() ;
-	}
-	
-	/**
-	 * 设置播放按钮高度。
-	 */
-	public void setPlayButtonHeight(int height){
-		this.mPlayButtonHeight = height ;
-		resetPlayBtnRect() ;
-		invalidatePlayBtn() ;
-	}
-	
-	/**
-	 * 设置播放按钮大小。
-	 *
-	 * @param width 播放按钮宽度。
-	 * @param height 播放按钮高度。
-	 */
-	public void setPlayButtonSize(int width,int height){
-		this.mPlayButtonWidth = width ;
-		this.mPlayButtonHeight = height ;
-		resetPlayBtnRect() ;
-		invalidatePlayBtn() ;
-	}
-	
-	//-------------------- PlayButton End --------------------//
-
-	/**
-	 * 设置歌词默认的文本颜色。
-	 */
-	public void setLyricTextColor(int defaultLyricTextColor) {
-		if (this.mLyricTextColor == defaultLyricTextColor) {
-			return ;
-		}
-		this.mLyricTextColor = defaultLyricTextColor ;
-		invalidate() ;
-	}
-
-	/**
-	 * 设置当前播放歌词的高亮颜色。
-	 */
-	public void setLyricHighlightTextColor(int highlightColor) {
-		if (this.mLyricHighlightTextColor == highlightColor) {
-			return ;
-		}
-		this.mLyricHighlightTextColor = highlightColor ;
-		invalidate() ;
-	}
-
-	/**
-	 * 设置被 {@code Indicator} 选中的颜色。
-	 */
-	public void setLyricSelectedTextColor(int indicatedColor) {
-		if (this.mLyricSelectedTextColor == indicatedColor) {
-			return ;
-		}
-		this.mLyricSelectedTextColor = indicatedColor ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 设置时间文本左边距。
-	 */
-	public void setTimeTextLeft(int left){
-		this.mTimeTextLeft = left ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 设置歌词时间文本颜色。
-	 */
-	public void setTimeTextColor(int color){
-		this.mTimePaint.setColor(color) ;
-		autoInvalidate() ;
-	}
-	
-	/**
-	 * 设置歌词时间文本大小。
-	 */
-	public void setTimeTextSize(float timeSize){
-		this.mTimePaint.setTextSize(timeSize) ;
-	}
-
-	/**
-	 * 设置加载时的提示文本颜色。
-	 */
-	public void setLoadingTipColor(int color) {
-		this.mLoadingTipPaint.setColor(color) ;
-		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
-			autoInvalidate() ;
-		}
-	}
-
-	/**
-	 * 设置加载时的提示文本大小。
-	 *
-	 * @param size px
-	 */
-	public void setLoadingTipSize(float size) {
-		this.mLoadingTipPaint.setTextSize(size) ;
-		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
-			autoInvalidate() ;
-		}
-	}
-
-	/**
-	 * 设置加载时的提示文本。
-	 */
-	public void setLoadingTip(String loadingTip) {
-		this.mLoadingTip = loadingTip ;
-		if (this.mIsShowLoadingTip && !TextUtils.isEmpty(this.mLoadingTip)) {
-			autoInvalidate() ;
-		}
-	}
-	
-	/**
-	 * 获取加载提示文本。
-	 */
-	public String getLoadingTip(){
-		return this.mLoadingTip ;
-	}
-
-	/**
-	 * 设置是否显示加载中的提示文本。
-	 */
-	public void setLoadingTipShow(boolean isShow) {
-		this.mIsShowLoadingTip = isShow ;
-		autoInvalidate() ;
-	}
-
-	/**
-	 * 设置提示文本颜色。
-	 *
-	 * @see Lyric#setHint(String)
-	 */
-	public void setHintTextColor(int color) {
-		this.mHintPaint.setColor(color) ;
-		if (!isValidLyric()) {
-			autoInvalidate() ;
-		}
-	}
-
-	/**
-	 * 设置提示文本大小。
-	 *
-	 * @param size px
-	 *
-	 * @see Lyric#setHint(String)
-	 */
-	public void setHintTextSize(float size) {
-		this.mHintPaint.setTextSize(size) ;
-		if (!isValidLyric()) {
-			autoInvalidate() ;
-		}
+	public void setAutoHideIndicator(boolean isAuto){
+		this.mIsAutoHideIndicator = isAuto ;
 	}
 
 	private class CalculateAllLyricsPositions implements Runnable {

@@ -37,12 +37,13 @@
 		<attr name="play_button_height" format="dimension"/>
 		<attr name="play_button_right" format="dimension"/>
 		
-		<attr name="scroll_duration" format="integer"/>
-		<attr name="scroll_to_selected_lyric_duration" format="integer"/>
+		<attr name="duration_of_scroll_to_play_lyric" format="integer"/>
+		<attr name="duration_of_align_to_selected_lyric" format="integer"/>
 		
-		<attr name="scroll_to_selected_lyric_delaymillis" format="integer"/>
-		<attr name="hide_indicator_delaymillis" format="integer"/>
-	
+		<attr name="delayMillis_of_scroll_to_play_lyric" format="integer"/>
+		<attr name="delayMillis_of_hide_indicator" format="integer"/>
+		<attr name="delayMillis_of_align_to_selected_lyric" format="integer"/>
+			
 		<attr name="lineSpace" format="dimension"/>
 	</declare-styleable>
 </resources>

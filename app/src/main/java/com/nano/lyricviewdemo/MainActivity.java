@@ -106,7 +106,7 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 
 			@Override
 			public void onStopTrackingTouch(SeekBar seekbar) {
-				mPagerAdapter.mLyricView.setIndicatorShow(false) ;
+				mPagerAdapter.mLyricView.hideIndicator() ;
 				isSeekbarUserTouching = false ;
 				changeProgress(seekbar.getProgress(),true) ;
 			}
@@ -131,7 +131,8 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 	
 	@Override
 	public void onPlayBtnClick(int position, LyricLine line) {
-		mPagerAdapter.mLyricView.setIndicatorShow(false) ;
+		mPagerAdapter.mLyricView.hideIndicator() ;
+		mPagerAdapter.mLyricView.removeCallbacks() ;
 		changeProgress(line.getBeginTime(),true) ;
 	}
 
@@ -151,7 +152,8 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 			mediaPlayer.pause() ;
 			isUpdateProgress = false ;
 			progress.removeMessages(REFRESH) ;
-			mPagerAdapter.mLyricView.setAutoScrollToLyric(false) ;
+			mPagerAdapter.mLyricView.setAutoScrollToPlayLyric(false) ;
+			mPagerAdapter.mLyricView.setAutoHideIndicator(false) ;
 		}
 	}
 	
@@ -159,7 +161,12 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 		mediaPlayer.start() ;
 		isUpdateProgress = true ;
 		progress.sendEmptyMessage(REFRESH) ;
-		mPagerAdapter.mLyricView.setAutoScrollToLyric(true) ;
+		mPagerAdapter.mLyricView.setAutoScrollToPlayLyric(true) ;
+		mPagerAdapter.mLyricView.setAutoHideIndicator(true) ;
+		mPagerAdapter.mLyricView.hideIndicator() ;
+		mPagerAdapter.mLyricView.smoothScrollToPlayLyric(
+		    mPagerAdapter.mLyricView.getDurationOfScrollToPlayLyric()
+		) ;
 	}
 	
 	private void setCurrentSong(final int index){
@@ -198,13 +205,21 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 	}
 	
 	private void changeProgress(int time,boolean changeMediaPlayer){
-		if(changeMediaPlayer) mediaPlayer.seekTo(time);
+		if(changeMediaPlayer){
+			mediaPlayer.seekTo(time);
+		}
 		
 		if(!isSeekbarUserTouching) {
 			mTvCurrentDuration.setText(CompatUtils.timeFormat(time)) ;
 			mSeekBar.setProgress(time) ;
 		}
-		mPagerAdapter.mLyricView.setCurrentPlayingLyricByTime(time,0) ;
+		
+		mPagerAdapter.mLyricView.setPlayLyricIndexByTimeMillis(time,0) ;
+		if(!mPagerAdapter.mLyricView.isIndicatorShow()){
+			mPagerAdapter.mLyricView.smoothScrollToPlayLyric(
+				mPagerAdapter.mLyricView.getDurationOfScrollToPlayLyric()
+			); 
+		}
 	}
 	
 	private void switchBackground(){
@@ -213,7 +228,6 @@ public class MainActivity extends AppCompatActivity implements MediaPlayer.OnCom
 			public void run() {
 				int res = SONGS[currentIndex][3] ;
 				if(res == -1) return ;
-				Glide.clear(mImageBackground) ;
 				Glide.with(MainActivity.this)
 				    .load(res)
 					.fitCenter()
