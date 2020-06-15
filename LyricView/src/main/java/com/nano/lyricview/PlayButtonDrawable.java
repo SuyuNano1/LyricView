@@ -49,6 +49,7 @@ public class PlayButtonDrawable extends Drawable {
 
 	@Override
 	public void setAlpha(int alpha) {
+		mPaint.setAlpha(alpha); 
 	}
 
 	@Override
